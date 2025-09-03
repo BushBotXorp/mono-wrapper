@@ -1,0 +1,54 @@
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import httpx
+import os
+
+app = FastAPI()
+
+MONO_SECRET = os.getenv("MONO_SECRET")
+MONO_API_URL = "https://api.withmono.com/v2/payments/initiate"
+
+
+class Customer(BaseModel):
+    name: str
+    email: str
+    phone: str | None = None
+    address: str | None = None
+    identity: dict | None = None
+
+
+class PaymentRequest(BaseModel):
+    amount: int
+    type: str = "onetime-debit"
+    method: str = "account"
+    account: str | None = None
+    description: str
+    reference: str
+    redirect_url: str
+    customer: Customer
+    meta: dict | None = {}
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.post("/initiate-payment")
+async def initiate_payment(request: PaymentRequest):
+    if not MONO_SECRET:
+        raise HTTPException(status_code=500, detail="MONO_SECRET not configured")
+
+    headers = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "mono-sec-key": MONO_SECRET,
+    }
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.post(MONO_API_URL, headers=headers, json=request.dict(exclude_none=True))
+
+    if response.status_code >= 400:
+        raise HTTPException(status_code=response.status_code, detail=response.json())
+
+    return response.json()
